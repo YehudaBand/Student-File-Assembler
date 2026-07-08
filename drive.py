@@ -173,6 +173,26 @@ def find_folder_by_name(drive_service, parent_id: str, name: str) -> dict | None
     return None
 
 
+def ensure_folder(drive_service, parent_id: str, name: str) -> dict:
+    """Return existing folder or create it under parent_id."""
+    existing = find_folder_by_name(drive_service, parent_id, name)
+    if existing:
+        return existing
+
+    def do_create():
+        return drive_service.files().create(
+            body={
+                "name": name,
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": [parent_id],
+            },
+            fields="id, name",
+            supportsAllDrives=True,
+        ).execute()
+
+    return _retrying(do_create)
+
+
 def _escape_drive_name(name: str) -> str:
     return name.replace("\\", "\\\\").replace("'", "\\'")
 

@@ -17,9 +17,9 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import store
-from assembler import assemble_one, check_existing_output, write_report
+from assembler import assemble_one, check_output_in_drive, write_report
 from checklist import CHECKLIST, checklist_by_key, section_filename_token
-from drive import drive_file_link, get_drive_service, list_children, upsert_file
+from drive import drive_file_link, get_drive_service, list_children
 from suggest import parse_folder_name, suggest as suggest_section, validate_file
 
 load_dotenv()
@@ -59,7 +59,6 @@ def _resolve_output_dir() -> Path:
 
 CONFIG = {
     "drive_folder_id": os.getenv("GDRIVE_ROOT_FOLDER_ID", ""),
-    "output_folder_id": os.getenv("GDRIVE_OUTPUT_FOLDER_ID", "").strip(),
     "output_dir": _resolve_output_dir(),
 }
 
@@ -144,9 +143,6 @@ def _drive_folder_link(folder_id: str | None) -> str | None:
 
 def _list_drive_folders(drive) -> list[dict]:
     folders = list_children(drive, CONFIG["drive_folder_id"], only_folders=True)
-    output_id = CONFIG["output_folder_id"]
-    if output_id:
-        folders = [f for f in folders if f["id"] != output_id]
     valid = []
     for folder in folders:
         if parse_folder_name(folder["name"]):
@@ -191,13 +187,32 @@ def _merge_drive_folder(folder: dict, stored: dict | None) -> dict:
         "drive_folder_id": folder["id"],
         "drive_file_id": stored.get("drive_file_id"),
         "drive_link": stored.get("drive_link") or drive_file_link(stored.get("drive_file_id")),
+        "output_status": stored.get("output_status"),
     }
 
 
-def _serialize_student(row: dict, compulsory: list[str]) -> dict:
-    existing, output_filename = check_existing_output(
-        CONFIG["output_dir"], row["folder_name"]
-    )
+def _existing_output_for_student(drive, row: dict) -> tuple[str | None, str | None]:
+    drive_folder_id = row.get("drive_folder_id")
+    if drive_folder_id:
+        try:
+            _status, filename, file_meta = check_output_in_drive(drive, drive_folder_id)
+            if file_meta:
+                stored_status = row.get("output_status")
+                status = stored_status if stored_status in ("OK", "INCOMPLETE") else "OK"
+                return status, filename
+        except Exception:
+            pass
+    return None, None
+
+
+def _serialize_student(row: dict, compulsory: list[str], drive=None) -> dict:
+    if drive is not None:
+        existing, output_filename = _existing_output_for_student(drive, row)
+    else:
+        existing, output_filename = row.get("output_status"), None
+        if existing and not output_filename:
+            from assembler import OUTPUT_DRIVE_FILENAME
+            output_filename = OUTPUT_DRIVE_FILENAME
     coverage = _coverage(compulsory)
     comp_stats = _student_compulsory_stats(row, compulsory)
     drive_folder_id = row.get("drive_folder_id")
@@ -226,7 +241,7 @@ def _students_from_drive(drive) -> list[dict]:
     for folder in folders:
         stored = store.get_student(folder["name"])
         row = _merge_drive_folder(folder, stored)
-        out.append(_serialize_student(row, compulsory))
+        out.append(_serialize_student(row, compulsory, drive=drive))
     return out
 
 
@@ -247,6 +262,25 @@ def _run_sync(drive) -> dict:
 
         section_counts, invalid = _scan_folder_files(files, student)
         parsed = _parsed_folder_fields(folder["name"])
+
+        drive_file_id = None
+        drive_link = None
+        output_status = None
+        try:
+            _status, _filename, file_meta = check_output_in_drive(drive, folder["id"])
+            if file_meta:
+                drive_file_id = file_meta["id"]
+                drive_link = drive_file_link(drive_file_id)
+                output_status = (stored or {}).get("output_status")
+                if output_status not in ("OK", "INCOMPLETE"):
+                    output_status = "OK"
+            else:
+                drive_file_id = ""
+                drive_link = ""
+                output_status = ""
+        except Exception:
+            pass
+
         store.upsert(
             folder["name"],
             last_name=parsed["last_name"],
@@ -254,6 +288,9 @@ def _run_sync(drive) -> dict:
             drive_folder_id=folder["id"],
             section_counts=section_counts,
             invalid_file_count=invalid,
+            drive_file_id=drive_file_id,
+            drive_link=drive_link,
+            output_status=output_status,
         )
 
     students = _students_from_drive(drive)
@@ -276,10 +313,9 @@ def index():
 def api_config():
     return jsonify({
         "drive_folder_id": CONFIG["drive_folder_id"],
-        "output_folder_id": CONFIG["output_folder_id"],
         "output_dir": str(CONFIG["output_dir"]),
         "drive_configured": bool(CONFIG["drive_folder_id"]),
-        "upload_enabled": bool(CONFIG["output_folder_id"]),
+        "upload_enabled": bool(CONFIG["drive_folder_id"]),
     })
 
 
@@ -400,7 +436,6 @@ def api_run_one(folder_name: str):
             student,
             CONFIG["output_dir"],
             force=True,
-            upload_folder_id=CONFIG["output_folder_id"] or None,
             compulsory_sections=compulsory,
             log=log_line,
         )
@@ -410,6 +445,7 @@ def api_run_one(folder_name: str):
                 result.folder_name,
                 drive_file_id=result.drive_file_id,
                 drive_link=result.drive_link or drive_file_link(result.drive_file_id),
+                output_status=result.status,
             )
 
         report_rows = [asdict(r) for r in result.report_rows]
@@ -457,23 +493,11 @@ def api_report():
     ]
 
     report_path = write_report(rows, CONFIG["output_dir"])
-    report_drive_link = None
-    upload_folder = CONFIG["output_folder_id"]
-    if upload_folder:
-        try:
-            drive = get_drive_service()
-            upload = upsert_file(
-                drive, upload_folder, report_path.name,
-                report_path.read_bytes(), mime_type="text/csv",
-            )
-            report_drive_link = upload.get("webViewLink")
-        except Exception as exc:
-            print(f"Report Drive upload FAILED: {exc}", flush=True)
 
     return jsonify({
         "report_path": str(report_path),
         "report_filename": report_path.name,
-        "report_drive_link": report_drive_link,
+        "report_drive_link": None,
     })
 
 

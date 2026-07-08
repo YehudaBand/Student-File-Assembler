@@ -14,7 +14,7 @@ function badge(text, kind) {
 function renderConfig(cfg) {
   const el = $("#config");
   const driveOk = cfg.drive_configured ? "✓ configured" : "✗ GDRIVE_ROOT_FOLDER_ID missing";
-  const uploadOk = cfg.upload_enabled ? "✓ upload enabled" : "✗ no Drive upload (set GDRIVE_OUTPUT_FOLDER_ID)";
+  const uploadOk = cfg.upload_enabled ? "✓ upload to student Output/" : "✗ Drive not configured";
   el.textContent = `drive=${driveOk}  •  ${uploadOk}  •  output=${cfg.output_dir}`;
 }
 

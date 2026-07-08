@@ -48,6 +48,7 @@ def _materialize(folder_name: str, entry: dict) -> dict:
         "drive_folder_id": entry.get("drive_folder_id"),
         "drive_file_id": entry.get("drive_file_id"),
         "drive_link": entry.get("drive_link"),
+        "output_status": entry.get("output_status"),
     }
 
 
@@ -70,7 +71,8 @@ def upsert(folder_name: str,
            invalid_file_count: int | None = None,
            drive_folder_id: str | None = None,
            drive_file_id: str | None = None,
-           drive_link: str | None = None) -> dict:
+           drive_link: str | None = None,
+           output_status: str | None = None) -> dict:
 
     data = load()
     entry = data["students"].get(folder_name, {
@@ -117,6 +119,8 @@ def upsert(folder_name: str,
         entry["drive_file_id"] = drive_file_id
     if drive_link is not None:
         entry["drive_link"] = drive_link
+    if output_status is not None:
+        entry["output_status"] = output_status
 
     data["students"][folder_name] = entry
     save(data)

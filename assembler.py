@@ -15,10 +15,20 @@ from pathlib import Path
 from googleapiclient.errors import HttpError
 
 from checklist import CHECKLIST, checklist_by_key
-from coverpage import cover_page
-from drive import download_file, drive_file_link, find_folder_by_name, list_children, upsert_file
+from coverpage import cover_page, student_cover_page
+from drive import (
+    download_file,
+    drive_file_link,
+    ensure_folder,
+    find_folder_by_name,
+    list_children,
+    upsert_file,
+)
 from normalize import merge_pdfs, normalize_to_pdf
-from suggest import suggest as suggest_section
+from suggest import parse_folder_name, suggest as suggest_section
+
+OUTPUT_SUBFOLDER = "Output"
+OUTPUT_DRIVE_FILENAME = "HCM2_File.pdf"
 
 
 @dataclass
@@ -62,6 +72,17 @@ def _files_by_section_auto(files: list[dict]) -> tuple[dict[str, list[dict]], li
     return by_section, unrecognized
 
 
+def _student_identity(student: dict) -> tuple[str, str]:
+    last_name = (student.get("last_name") or "").strip()
+    stars_id = (student.get("stars_id") or "").strip()
+    if last_name and stars_id:
+        return last_name, stars_id
+    parsed = parse_folder_name(student.get("folder_name", ""))
+    if parsed:
+        return parsed["last_name"], parsed["stars_id"]
+    return last_name or student.get("folder_name", ""), stars_id
+
+
 def assemble_one(
     drive_service,
     root_folder_id: str,
@@ -69,7 +90,6 @@ def assemble_one(
     output_dir: Path,
     *,
     force: bool = True,
-    upload_folder_id: str | None = None,
     compulsory_sections: list[str] | None = None,
     log=print,
 ) -> StudentResult:
@@ -114,7 +134,7 @@ def assemble_one(
     compulsory_missing = False
     pdf_parts: list[tuple[str, bytes]] = []
 
-    for section_idx, (key, human_name, _sub_docs) in enumerate(CHECKLIST, 1):
+    for _section_idx, (key, human_name, _sub_docs) in enumerate(CHECKLIST, 1):
         if key in na_sections:
             result.report_rows.append(ReportRow(
                 folder_name, key, human_name, "N/A", "Marked N/A"
@@ -136,8 +156,8 @@ def assemble_one(
             continue
 
         pdf_parts.append((
-            f"cover:{section_idx}. {human_name}",
-            cover_page(f"{section_idx}. {human_name}"),
+            f"cover:{human_name}",
+            cover_page(human_name),
         ))
 
         slot_ok = False
@@ -193,6 +213,12 @@ def assemble_one(
         log(f"  [{folder_name}] {result.messages[-1]}")
         return result
 
+    last_name, stars_id = _student_identity(student)
+    pdf_parts.insert(0, (
+        "cover:Student Files",
+        student_cover_page(last_name, stars_id),
+    ))
+
     merged, skipped_pdfs = merge_pdfs(pdf_parts, log=log)
     if skipped_pdfs:
         for label in skipped_pdfs:
@@ -211,17 +237,21 @@ def assemble_one(
     result.status = "INCOMPLETE" if incomplete else "OK"
     log(f"  [{folder_name}] {result.status} -> {output_path.name}")
 
-    if upload_folder_id:
-        try:
-            upload = upsert_file(drive_service, upload_folder_id,
-                                 output_path.name, merged)
-            result.drive_file_id = upload.get("id")
-            result.drive_link = upload.get("webViewLink") or drive_file_link(result.drive_file_id)
-            action = upload.get("action", "uploaded")
-            log(f"  [{folder_name}] Drive: {action} {output_path.name} ({result.drive_link})")
-        except Exception as exc:
-            log(f"  [{folder_name}] Drive upload FAILED: {exc}")
-            result.messages.append(f"Drive upload failed: {exc}")
+    try:
+        output_folder = ensure_folder(drive_service, folder["id"], OUTPUT_SUBFOLDER)
+        upload = upsert_file(
+            drive_service,
+            output_folder["id"],
+            OUTPUT_DRIVE_FILENAME,
+            merged,
+        )
+        result.drive_file_id = upload.get("id")
+        result.drive_link = upload.get("webViewLink") or drive_file_link(result.drive_file_id)
+        action = upload.get("action", "uploaded")
+        log(f"  [{folder_name}] Drive: {action} {OUTPUT_DRIVE_FILENAME} ({result.drive_link})")
+    except Exception as exc:
+        log(f"  [{folder_name}] Drive upload FAILED: {exc}")
+        result.messages.append(f"Drive upload failed: {exc}")
 
     return result
 
@@ -242,6 +272,24 @@ def write_report(rows: list[ReportRow], output_dir: Path) -> Path:
             writer.writerow([r.student_folder, r.section_key,
                              r.section_name, r.status, r.notes])
     return path
+
+
+def check_output_in_drive(
+    drive_service,
+    student_folder_id: str,
+) -> tuple[str | None, str | None, dict | None]:
+    """Return (status, filename, file_dict) if HCM2_File.pdf exists in Output/."""
+    output_folder = find_folder_by_name(drive_service, student_folder_id, OUTPUT_SUBFOLDER)
+    if not output_folder:
+        return None, None, None
+
+    for f in list_children(drive_service, output_folder["id"]):
+        if f.get("mimeType") == "application/vnd.google-apps.folder":
+            continue
+        if f["name"] == OUTPUT_DRIVE_FILENAME:
+            return "OK", OUTPUT_DRIVE_FILENAME, f
+
+    return None, None, None
 
 
 def check_existing_output(output_dir: Path, folder_name: str) -> tuple[str | None, str | None]:
