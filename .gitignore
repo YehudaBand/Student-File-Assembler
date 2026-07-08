@@ -1,0 +1,22 @@
+# Secrets & credentials
+.env
+credentials.json
+token.json
+
+# Instance-specific data (student roster with Drive file IDs)
+roster.json
+
+# Generated output (assembled PDFs, reports)
+output/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+
+# Misc
+cache/
