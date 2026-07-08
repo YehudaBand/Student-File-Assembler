@@ -98,7 +98,8 @@ Similar env vars; use `--timeout=3600`, `--memory=2Gi`, min instances `1` if you
 
 Scaffolding added in this repo:
 
-- `vercel.json` — routes all traffic to Python serverless function (300s max on Pro)
+- `vercel.json` — rewrites all traffic to `api/index.py` (300s max on Pro)
+- `pyproject.toml` — pins Vercel entrypoint to `api.index:app` (avoids dual-detection with root `app.py`)
 - `api/index.py` — WSGI entry
 - `auth.py` — Google Workspace login blueprint
 - `.env.example` — all env vars documented
@@ -153,15 +154,16 @@ Never commit these to git.
 
 #### Step 3 — Push code to GitHub
 
-Ensure `student_file_assembler/` is in a repo Vercel can access.
+Ensure the repo root contains `vercel.json`, `api/index.py`, `app.py`, and `requirements.txt` (merged to `master`).
 
 #### Step 4 — Create Vercel project
 
-1. [vercel.com](https://vercel.com) → Add New Project → import repo.
-2. **Root Directory:** `student_file_assembler`
-3. **Framework Preset:** Other
-4. **Build Command:** leave empty (Python build handled by `@vercel/python`)
-5. **Output Directory:** leave default
+1. [vercel.com](https://vercel.com) → Add New Project → import repo **Masterschool-Team/Student-File-Assembler**.
+2. **Root Directory:** leave **empty** (`.` / repo root — the app lives at the top level, not in a subfolder).
+3. **Framework Preset:** Other (Vercel auto-detects Flask from `requirements.txt`).
+4. **Build Command:** leave empty.
+5. **Output Directory:** leave default.
+6. **Production Branch:** `master`.
 
 #### Step 5 — Environment variables (Vercel → Settings → Environment Variables)
 
@@ -192,12 +194,13 @@ Apply to **Production** (and Preview if desired).
 
 #### Step 7 — Deploy
 
+After merging to `master`, trigger a **Redeploy** in Vercel (Deployments → ⋯ → Redeploy) so the Python function is built — an earlier deploy of README-only `master` will 404 until redeployed.
+
 ```bash
-cd student_file_assembler
 npx vercel --prod
 ```
 
-Or push to `main` if Git integration is enabled.
+Or push to `master` if Git integration is enabled.
 
 #### Step 8 — Verify
 
