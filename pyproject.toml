@@ -1,0 +1,6 @@
+[project]
+name = "student-file-assembler"
+requires-python = ">=3.12"
+
+[tool.vercel]
+entrypoint = "api.index:app"
