@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>HCM2 Student File Assembler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>HCM2 Student File Assembler</h1>
+    <div class="config" id="config"></div>
+  </header>
+
+  <main>
+    <!-- Section reference & naming convention panel -->
+    <section class="ref-panel" id="ref-panel">
+      <div class="ref-header" id="ref-toggle">
+        <h2>File Naming Convention &amp; Sections</h2>
+        <button class="ref-collapse" id="ref-collapse-btn">▶</button>
+      </div>
+      <div class="ref-body hidden" id="ref-body">
+        <div class="ref-convention">
+          <div class="ref-format">
+            <strong>Required format:</strong>
+            <code>lastName_starsId_SECTION_fileName.ext</code>
+          </div>
+          <div class="ref-example">
+            <strong>Example:</strong>
+            <code>Smith_12345_ISIR_transaction_2024.pdf</code>
+          </div>
+          <p class="ref-note">
+            Every file must include the student's <strong>last name</strong>, their
+            5-digit <strong>STARS ID</strong>, and a valid <strong>section key</strong>.
+            Files without a valid section key will be <em>rejected</em>.
+          </p>
+        </div>
+        <div class="ref-sections" id="ref-sections">
+          <!-- Populated by JS from /api/checklist -->
+        </div>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="toolbar">
+        <button id="btn-sync">↻ Sync from Drive</button>
+        <span class="sep"></span>
+        <button id="btn-select-all">Select all</button>
+        <button id="btn-select-none">Select none</button>
+        <button id="btn-select-missing">Select without output</button>
+        <button id="btn-preflight">Pre-flight report</button>
+        <button id="btn-compulsory">Compulsory Sections</button>
+        <button id="btn-run" class="primary">Run</button>
+      </div>
+      <div id="status-bar"></div>
+      <div id="sync-progress" class="progress hidden">
+        <div class="progress-bar"><div id="sync-progress-fill"></div></div>
+        <div id="sync-progress-label" class="progress-label"></div>
+      </div>
+      <div id="run-progress" class="progress hidden">
+        <div class="progress-bar"><div id="run-progress-fill"></div></div>
+        <div id="run-progress-label" class="progress-label"></div>
+      </div>
+    </section>
+
+    <section class="table-wrap">
+      <table id="roster">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="chk-header" /></th>
+            <th>Student folder</th>
+            <th>Last Name</th>
+            <th>STARS ID</th>
+            <th>N/A sections</th>
+            <th>Coverage</th>
+            <th>Package</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="empty-msg" class="empty">
+        No student folders found. Click <strong>Sync from Drive</strong> to scan files.
+      </div>
+    </section>
+
+    <section class="log-wrap">
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </section>
+
+    <section class="results" id="results"></section>
+  </main>
+
+  <!-- N/A sections picker modal -->
+  <div id="na-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>N/A sections — <span id="na-folder"></span></h3>
+      <p class="hint">Tick sections that do <em>not</em> apply to this student. They will be marked N/A in the report instead of MISSING.</p>
+      <div id="na-checklist"></div>
+      <div class="modal-footer">
+        <button id="na-cancel">Cancel</button>
+        <button id="na-save" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Compulsory sections modal -->
+  <div id="compulsory-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Compulsory Sections</h3>
+      <p class="hint">Mark sections that <strong>every</strong> student must have. Students missing a compulsory section will be marked INCOMPLETE.</p>
+      <div id="compulsory-checklist"></div>
+      <div class="modal-footer">
+        <button id="compulsory-cancel">Cancel</button>
+        <button id="compulsory-save" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pre-flight modal -->
+  <div id="pf-modal" class="modal hidden">
+    <div class="modal-card wide">
+      <h3>Pre-flight Coverage Report</h3>
+      <div id="pf-body"></div>
+      <div class="modal-footer">
+        <button id="pf-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
