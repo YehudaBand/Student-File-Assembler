@@ -322,45 +322,6 @@ function closeCompulsoryModal() {
   $("#compulsory-modal").classList.add("hidden");
 }
 
-// -------- Pre-flight modal --------
-
-function openPreflightModal() {
-  $("#pf-modal").classList.remove("hidden");
-  renderPreflight();
-}
-
-function closePreflightModal() {
-  $("#pf-modal").classList.add("hidden");
-}
-
-function renderPreflight() {
-  const totalStudents = roster.length;
-  const header = `<div class="hint" style="margin-bottom:10px">
-    <strong>${totalStudents}</strong> student(s) in roster.
-    <strong>${compulsorySections.length}</strong> compulsory section(s).
-  </div>`;
-
-  if (!totalStudents) {
-    $("#pf-body").innerHTML = header + `<div class="empty">Roster is empty.</div>`;
-    return;
-  }
-
-  const body = roster.map((r) => {
-    const sectionCount = r.section_count || 13;
-    const presentSections = Object.keys(r.section_counts || {}).length;
-    const statsLine = `${presentSections}/${sectionCount} sections with files`;
-
-    return `<div class="pf-student">
-      <div class="pf-student-header">
-        <div class="pf-student-name">${r.folder_name}</div>
-        <div class="pf-student-stats">${statsLine}</div>
-      </div>
-    </div>`;
-  }).join("");
-
-  $("#pf-body").innerHTML = header + body;
-}
-
 // -------- Run (one student per request) --------
 
 async function runJob() {
@@ -476,18 +437,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#btn-sync").addEventListener("click", syncDrive);
   $("#btn-run").addEventListener("click", runJob);
-  $("#btn-select-all").addEventListener("click", () => {
-    $$(".row-check").forEach((c) => (c.checked = true));
-  });
   $("#btn-select-none").addEventListener("click", () => {
     $$(".row-check").forEach((c) => (c.checked = false));
-  });
-  $("#btn-select-missing").addEventListener("click", () => {
-    $$(".row-check").forEach((c) => {
-      const folder = c.dataset.folder;
-      const row = roster.find((r) => r.folder_name === folder);
-      c.checked = !row || (!row.drive_link && row.existing_output === null);
-    });
   });
   $("#chk-header").addEventListener("change", (e) => {
     $$(".row-check").forEach((c) => (c.checked = e.target.checked));
@@ -512,11 +463,5 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#compulsory-save").addEventListener("click", saveCompulsoryModal);
   $("#compulsory-modal").addEventListener("click", (e) => {
     if (e.target.id === "compulsory-modal") closeCompulsoryModal();
-  });
-
-  $("#btn-preflight").addEventListener("click", openPreflightModal);
-  $("#pf-close").addEventListener("click", closePreflightModal);
-  $("#pf-modal").addEventListener("click", (e) => {
-    if (e.target.id === "pf-modal") closePreflightModal();
   });
 });
