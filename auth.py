@@ -99,6 +99,7 @@ def _flow() -> Flow:
         _oauth_client_config(),
         scopes=LOGIN_SCOPES,
         redirect_uri=_redirect_uri(),
+        autogenerate_code_verifier=False,
     )
 
 
