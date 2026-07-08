@@ -11,6 +11,7 @@ import os
 import traceback
 from dataclasses import asdict
 from pathlib import Path
+from urllib.parse import unquote
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_from_directory
@@ -24,6 +25,11 @@ from suggest import suggest as suggest_section, validate_file
 load_dotenv()
 
 PROJECT_ROOT = Path(__file__).parent
+
+
+def _decode_folder_name(name: str) -> str:
+    """Decode URL-encoded folder names (Vercel may not decode path segments)."""
+    return unquote(name)
 
 
 def create_app() -> Flask:
@@ -295,8 +301,9 @@ def api_students():
     return jsonify(_students_from_drive(drive))
 
 
-@app.patch("/api/students/<folder_name>")
+@app.patch("/api/students/<path:folder_name>")
 def api_update_student(folder_name: str):
+    folder_name = _decode_folder_name(folder_name)
     body = request.get_json(force=True, silent=True) or {}
 
     try:
@@ -316,8 +323,9 @@ def api_update_student(folder_name: str):
     return jsonify(_serialize_student(row, compulsory))
 
 
-@app.delete("/api/students/<folder_name>")
+@app.delete("/api/students/<path:folder_name>")
 def api_delete_student(folder_name: str):
+    folder_name = _decode_folder_name(folder_name)
     ok = store.delete(folder_name)
     return jsonify({"deleted": ok})
 
@@ -350,8 +358,9 @@ def api_sync():
         return jsonify({"error": str(exc)}), 500
 
 
-@app.post("/api/run/<folder_name>")
+@app.post("/api/run/<path:folder_name>")
 def api_run_one(folder_name: str):
+    folder_name = _decode_folder_name(folder_name)
     if not CONFIG["drive_folder_id"]:
         return jsonify({"error": "GDRIVE_ROOT_FOLDER_ID not set in .env"}), 400
 
