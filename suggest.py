@@ -18,6 +18,17 @@ from checklist import SECTION_LOOKUP, section_filename_token
 _STARS_RE = re.compile(r"^\d{5}$")
 
 
+def parse_folder_name(folder_name: str) -> dict | None:
+    """Student Drive folders must be named lastName_starsId (5-digit STARS ID)."""
+    parts = folder_name.strip().split("_", 1)
+    if len(parts) != 2:
+        return None
+    last_name, stars_id = parts[0].strip(), parts[1].strip()
+    if not last_name or not _STARS_RE.match(stars_id):
+        return None
+    return {"last_name": last_name, "stars_id": stars_id}
+
+
 def parse_filename(filename: str) -> dict | None:
     stem = Path(filename).stem
     parts = stem.split("_", 3)

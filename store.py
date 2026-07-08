@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 
 from checklist import SECTION_LOOKUP, VALID_SECTIONS
+from suggest import parse_folder_name
 
 STORE_PATH = Path(os.getenv("ROSTER_STORE_PATH", str(Path(__file__).parent / "roster.json")))
 _LOCK = threading.Lock()
@@ -136,9 +137,10 @@ def sync_with_drive(folder_names: list[str]) -> dict:
     added = []
     for name in folder_names:
         if name not in data["students"]:
+            parsed = parse_folder_name(name) or {"last_name": "", "stars_id": ""}
             data["students"][name] = {
-                "last_name": "",
-                "stars_id": "",
+                "last_name": parsed["last_name"],
+                "stars_id": parsed["stars_id"],
                 "na_documents": [],
                 "section_counts": {},
                 "invalid_file_count": 0,
