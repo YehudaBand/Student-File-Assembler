@@ -20,7 +20,7 @@ import store
 from assembler import assemble_one, check_existing_output, write_report
 from checklist import CHECKLIST, checklist_by_key, section_filename_token
 from drive import drive_file_link, get_drive_service, list_children, upsert_file
-from suggest import suggest as suggest_section, validate_file
+from suggest import parse_folder_name, suggest as suggest_section, validate_file
 
 load_dotenv()
 
@@ -147,14 +147,26 @@ def _list_drive_folders(drive) -> list[dict]:
     output_id = CONFIG["output_folder_id"]
     if output_id:
         folders = [f for f in folders if f["id"] != output_id]
-    return sorted(folders, key=lambda f: f["name"].lower())
+    valid = []
+    for folder in folders:
+        if parse_folder_name(folder["name"]):
+            valid.append(folder)
+    return sorted(valid, key=lambda f: f["name"].lower())
+
+
+def _parsed_folder_fields(folder_name: str) -> dict:
+    parsed = parse_folder_name(folder_name)
+    if not parsed:
+        return {"last_name": "", "stars_id": ""}
+    return parsed
 
 
 def _student_defaults(folder_name: str, drive_folder_id: str | None = None) -> dict:
+    fields = _parsed_folder_fields(folder_name)
     return {
         "folder_name": folder_name,
-        "last_name": "",
-        "stars_id": "",
+        "last_name": fields["last_name"],
+        "stars_id": fields["stars_id"],
         "na_documents": set(),
         "section_counts": {},
         "invalid_file_count": 0,
@@ -165,13 +177,14 @@ def _student_defaults(folder_name: str, drive_folder_id: str | None = None) -> d
 
 
 def _merge_drive_folder(folder: dict, stored: dict | None) -> dict:
+    parsed = _parsed_folder_fields(folder["name"])
     base = _student_defaults(folder["name"], folder["id"])
     if not stored:
         return base
     return {
         **base,
-        "last_name": stored.get("last_name", ""),
-        "stars_id": stored.get("stars_id", ""),
+        "last_name": parsed["last_name"],
+        "stars_id": parsed["stars_id"],
         "na_documents": stored.get("na_documents") or set(),
         "section_counts": dict(stored.get("section_counts") or {}),
         "invalid_file_count": int(stored.get("invalid_file_count") or 0),
@@ -233,8 +246,11 @@ def _run_sync(drive) -> dict:
             continue
 
         section_counts, invalid = _scan_folder_files(files, student)
+        parsed = _parsed_folder_fields(folder["name"])
         store.upsert(
             folder["name"],
+            last_name=parsed["last_name"],
+            stars_id=parsed["stars_id"],
             drive_folder_id=folder["id"],
             section_counts=section_counts,
             invalid_file_count=invalid,
