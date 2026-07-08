@@ -9,16 +9,20 @@ for how app login and Drive access fit together on serverless.
 
 from __future__ import annotations
 
+import logging
 import os
+import secrets
 from functools import wraps
 
 from flask import Blueprint, abort, redirect, request, session, url_for
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 auth_bp = Blueprint("auth", __name__)
+logger = logging.getLogger(__name__)
 
 # OpenID scopes only — Drive scopes stay in drive.py / service credentials.
 LOGIN_SCOPES = [
@@ -59,6 +63,37 @@ def _redirect_uri() -> str:
     return f"{base}/auth/callback"
 
 
+def _authorization_response_url() -> str:
+    """Rebuild callback URL with HTTPS from APP_BASE_URL (Vercel sits behind a proxy)."""
+    base = os.getenv("APP_BASE_URL", "").rstrip("/")
+    if base:
+        qs = request.query_string.decode()
+        return f"{base}{request.path}?{qs}" if qs else f"{base}{request.path}"
+    return request.url
+
+
+def _state_signer() -> URLSafeTimedSerializer:
+    secret = os.getenv("FLASK_SECRET_KEY", "").strip()
+    if not secret:
+        raise RuntimeError("FLASK_SECRET_KEY is required when Google auth is enabled")
+    return URLSafeTimedSerializer(secret, salt="hcm2-oauth-state")
+
+
+def _encode_oauth_state(next_url: str) -> str:
+    """Signed state survives serverless round-trips without session cookies."""
+    if not next_url.startswith("/"):
+        next_url = "/"
+    return _state_signer().dumps({"next": next_url, "nonce": secrets.token_urlsafe(8)})
+
+
+def _decode_oauth_state(state: str) -> str:
+    payload = _state_signer().loads(state, max_age=900)
+    next_url = payload.get("next", "/")
+    if not isinstance(next_url, str) or not next_url.startswith("/"):
+        return "/"
+    return next_url
+
+
 def _flow() -> Flow:
     return Flow.from_client_config(
         _oauth_client_config(),
@@ -93,15 +128,17 @@ def login_required(view):
 def login():
     if not auth_enabled():
         abort(404)
+    next_url = request.args.get("next") or "/"
+    if not next_url.startswith("/"):
+        next_url = "/"
+    state = _encode_oauth_state(next_url)
     flow = _flow()
-    auth_url, _state = flow.authorization_url(
+    auth_url, _ = flow.authorization_url(
         access_type="online",
-        include_granted_scopes="true",
         prompt="select_account",
         hd=allowed_domain(),
+        state=state,
     )
-    session["oauth_state"] = _state
-    session["auth_next"] = request.args.get("next") or "/"
     return redirect(auth_url)
 
 
@@ -110,22 +147,37 @@ def callback():
     if not auth_enabled():
         abort(404)
 
-    state = session.pop("oauth_state", None)
-    if state is None:
+    state_param = request.args.get("state")
+    if not state_param:
         abort(400, description="Missing OAuth state — start login again")
 
+    try:
+        next_url = _decode_oauth_state(state_param)
+    except BadSignature:
+        abort(400, description="Invalid or expired OAuth state — start login again")
+
     flow = _flow()
-    flow.fetch_token(authorization_response=request.url)
+    flow.oauth2session.state = state_param
+
+    try:
+        flow.fetch_token(authorization_response=_authorization_response_url())
+    except Exception as exc:
+        logger.exception("OAuth token exchange failed")
+        abort(502, description=f"Google token exchange failed: {exc}")
 
     creds = flow.credentials
     if not creds or not creds.id_token:
         abort(401, description="Google did not return an ID token")
 
-    info = id_token.verify_oauth2_token(
-        creds.id_token,
-        GoogleRequest(),
-        os.getenv("GOOGLE_CLIENT_ID"),
-    )
+    try:
+        info = id_token.verify_oauth2_token(
+            creds.id_token,
+            GoogleRequest(),
+            os.getenv("GOOGLE_CLIENT_ID"),
+        )
+    except Exception as exc:
+        logger.exception("ID token verification failed")
+        abort(401, description=f"Invalid ID token: {exc}")
 
     email = info.get("email", "")
     hosted_domain = info.get("hd")
@@ -137,10 +189,7 @@ def callback():
     session["user_name"] = info.get("name", "")
     session["user_picture"] = info.get("picture", "")
 
-    nxt = session.pop("auth_next", "/")
-    if not nxt.startswith("/"):
-        nxt = "/"
-    return redirect(nxt)
+    return redirect(next_url)
 
 
 @auth_bp.get("/auth/logout")
@@ -178,6 +227,8 @@ def register_auth(app) -> None:
     if not secret:
         raise RuntimeError("FLASK_SECRET_KEY is required when GOOGLE_AUTH_ENABLED=1")
     app.secret_key = secret
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     public_paths = {"/auth/login", "/auth/callback", "/auth/logout"}
 
